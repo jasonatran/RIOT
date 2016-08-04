@@ -35,6 +35,7 @@ USEMODULE += gnrc_ndp
 USEMODULE += gnrc_icmpv6_echo
 # Use minimal standard PRNG
 USEMODULE += prng_minstd
+USEMODULE += gnrc_pktdump
 
 # Set a custom 802.15.4 channel if needed
 DEFAULT_CHANNEL ?= 26
