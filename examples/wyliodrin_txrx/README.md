@@ -13,9 +13,10 @@ code starting with main.c. The exercise for students should probably not use the
 full shell, but I coded it within the shell so Wyliodrin can explore the 
 code space faster. For an exercise, all of the programming can be done within 
 main.c. Essentially, you would move everything written in wyliodrin.c into 
-main.c without the shell.
+main.c and not execute the shell but rather call wyliodrin_tx() and 
+wyliodrin_rx() directly with the proper input arguments.
 
----preserved from the gnrc_networking example---
+---below is the readme preserved from the gnrc_networking example---
 
 # gnrc_networking example
 

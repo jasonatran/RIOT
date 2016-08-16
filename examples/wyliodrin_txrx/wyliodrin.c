@@ -32,7 +32,9 @@
 #include "thread.h"
 #include "msg.h"
 
-#define TEST_MODE
+/* define this so you can compile and test via the macros below instead of
+   manually typing it into the RIOT shell everytime */ 
+//#define TEST_MODE
 
 /* hard code settings here so you do not have to type it in everytime! */
 #ifdef TEST_MODE 
@@ -45,9 +47,13 @@
 #endif
 
 #define QUEUE_SIZE 8
+#define CC2538_RSSI_OFFSET 73
 
-static gnrc_netreg_entry_t receiver = { NULL, GNRC_NETREG_DEMUX_CTX_ALL, KERNEL_PID_UNDEF};
+static gnrc_netreg_entry_t receiver = { NULL, GNRC_NETREG_DEMUX_CTX_ALL, 
+                                        KERNEL_PID_UNDEF};
 
+/* this is used to unregister the thread from receiving UDP packets sent to the 
+   port in the "receiver" struct */
 static void _unregister_thread(void)
 {
     gnrc_netreg_unregister(GNRC_NETTYPE_UDP, &receiver);
@@ -57,7 +63,8 @@ static void _unregister_thread(void)
 int wyliodrin_tx(int argc, char **argv)
 {
     if (argc < 3) {
-        printf("usage: %s <num_pkts> <interval_in_us> [<ipv6_addr> <port>]\n", argv[0]);
+        printf("usage: %s <num_pkts> <interval_in_us> [<ipv6_addr> <port>]\n", 
+            argv[0]);
         return 1;
     }
 
@@ -85,6 +92,7 @@ int wyliodrin_tx(int argc, char **argv)
     int16_t tx_power = TX_POWER;
     uint16_t channel = DEFAULT_CHAN;
 
+    /* this is the best way I could find setting network iface properties */
     kernel_pid_t ifs[GNRC_NETIF_NUMOF];
     size_t numof = gnrc_netif_get(ifs); 
     /* there should be only one network interface on the board */
@@ -157,7 +165,7 @@ int wyliodrin_tx(int argc, char **argv)
     return 0; 
 }
 
-/* the rx mode only uses <num_pkts> and <interval_in_us> for calculation */
+/* the rx mode only uses <num_pkts> and <interval_in_us> values for calculation */
 int wyliodrin_rx(int argc, char **argv)
 {
     if (argc < 2) {
@@ -209,7 +217,6 @@ int wyliodrin_rx(int argc, char **argv)
         if (xtimer_msg_receive_timeout(&msg, (uint32_t) ((num_pkts - pkt_cnt + 1) * interval)) < 0) {
             printf("wyliodrin_rx: timeout, experiment stopped\n");
 
-            /* no error checking */
             printf("rssi: mean = %f, variance = %f\n", rssi_mean, diff_squared_sum / (pkt_cnt - 1));
             printf("packet reception rate: %f\n", diff_squared_sum / (float) (pkt_cnt - 1) );
             _unregister_thread();
@@ -226,11 +233,23 @@ int wyliodrin_rx(int argc, char **argv)
             /* get snip containing network interface header (includes rssi)*/
             snip = gnrc_pktsnip_search_type(msg.content.ptr, GNRC_NETTYPE_NETIF);
             hdr = snip->data;
+
+            /* Note: the RSSI value printed here is the platform specific raw 
+               value from the netif. Make sure to adjust the RSSI value to get a
+               more meaningful number (see below for CC2538-specific info). */
             gnrc_netif_hdr_print(hdr);
-            delta = (float) hdr->rssi - rssi_mean;
+
+            /* The current CC2538 RF driver uses rfcore_read_byte() to read the
+               RSSI value which returns an uint_fast8_t when the RSSI register 
+               is an 8-bit signed value. Casting an unsigned to a signed is 
+               technically undefined in the C standard, but often works with
+               most compilers. Assuming this is safe to do, all you need is to
+               subtract an offset of 73 from the value read to get the the RSSI
+               in dBm */
+            delta = ((float) hdr->rssi - CC2538_RSSI_OFFSET) - rssi_mean;
             rssi_mean += delta / (float) pkt_cnt;
             diff_squared_sum += delta * ((float) - rssi_mean);
-            printf("delta = %f, rssi_mean = %f, diff_squared_sum = %f\n", delta, rssi_mean, diff_squared_sum);
+            printf("delta = %f, rssi_mean (dBm) = %f, diff_squared_sum = %f\n", delta, rssi_mean, diff_squared_sum);
 
             /* you can also get/print ipv6 data the method above. see gnrc_pktdump.c
             to better understand how. */ 

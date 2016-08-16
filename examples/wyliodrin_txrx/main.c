@@ -44,17 +44,18 @@ int main(void)
     /* we need a message queue for the thread running the shell in order to
      * receive potentially fast incoming networking packets */
     msg_init_queue(_main_msg_queue, MAIN_QUEUE_SIZE);
-    puts("RIOT network stack example application");
+    puts("RIOT network stack example with added experimentation functions");
 
     /* start shell */
     puts("All up, running the shell now");
     char line_buf[SHELL_DEFAULT_BUFSIZE];
 
-    /* Use the following to automatically run tx or rx mode */
+    /* Use the following to automatically run tx or rx mode instead of starting
+       the shell */
     // char *temp[3];
     // temp[0] = "wyliodrin_tx";
-    // temp[1] = "50";
-    // temp[2] = "1000000";
+    // temp[1] = "50";          //num pkts
+    // temp[2] = "1000000";     //interval_in_us
     // wyliodrin_tx(3, temp);
 
     shell_run(shell_commands, line_buf, SHELL_DEFAULT_BUFSIZE);
