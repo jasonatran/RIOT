@@ -34,7 +34,7 @@
 
 /* define this so you can compile and test via the macros below instead of
    manually typing it into the RIOT shell everytime */ 
-//#define TEST_MODE
+// #define TEST_MODE
 
 /* hard code settings here so you do not have to type it in everytime! */
 #ifdef TEST_MODE 
@@ -42,7 +42,7 @@
 #define TX_POWER 7
 /* valid range: 11 to 26 */ 
 #define DEFAULT_CHAN 12
-#define IPV6_ADDR "fe80::212:4b00:433:ed4f"
+#define IPV6_ADDR "fe80::212:4b00:433:ed81"
 #define PORT "8888"
 #endif
 
@@ -199,6 +199,7 @@ int wyliodrin_rx(int argc, char **argv)
     receiver.demux_ctx = port; 
     receiver.pid = thread_getpid();
     gnrc_netreg_register(GNRC_NETTYPE_UDP, &receiver);
+    gnrc_pktsnip_t *pkt;
     gnrc_pktsnip_t *snip;
     gnrc_netif_hdr_t *hdr;
 
@@ -213,31 +214,40 @@ int wyliodrin_rx(int argc, char **argv)
 
     unsigned int pkt_cnt = 0;
     for (pkt_cnt = 1; pkt_cnt <= num_pkts; pkt_cnt++) {
-        /* block while waiting for a packet with timeout based on experiment */
-        if (xtimer_msg_receive_timeout(&msg, (uint32_t) ((num_pkts - pkt_cnt + 1) * interval)) < 0) {
-            printf("wyliodrin_rx: timeout, experiment stopped\n");
-
-            printf("rssi: mean = %f, variance = %f\n", rssi_mean, diff_squared_sum / (pkt_cnt - 1));
-            printf("packet reception rate: %f\n", diff_squared_sum / (float) (pkt_cnt - 1) );
-            _unregister_thread();
-            return 1;
-        }
-
         if (msg.type == GNRC_NETAPI_MSG_TYPE_RCV) {
+            pkt = msg.content.ptr;
             puts("wyliodrin_rx: data received:");
 
             /* get snip containing packet data where we put the packet number */
-            snip = gnrc_pktsnip_search_type(msg.content.ptr, GNRC_NETTYPE_UNDEF);
+            snip = gnrc_pktsnip_search_type(pkt, GNRC_NETTYPE_UNDEF);
+            /* For some reason, RIOT sometimes prints a large number here such
+               such as 
             printf("received packet number %u\n", *(unsigned int *) snip->data);
 
             /* get snip containing network interface header (includes rssi)*/
-            snip = gnrc_pktsnip_search_type(msg.content.ptr, GNRC_NETTYPE_NETIF);
+            snip = gnrc_pktsnip_search_type(pkt, GNRC_NETTYPE_NETIF);
             hdr = snip->data;
 
             /* Note: the RSSI value printed here is the platform specific raw 
                value from the netif. Make sure to adjust the RSSI value to get a
-               more meaningful number (see below for CC2538-specific info). */
+               more meaningful number (see below for CC2538-specific info). 
+
+               Note: there is a bug with the ARM compiler where "PRIu8" is 
+               translated to "hhu" during compilation. Thus, to see values 
+               instead of just "hu" when the netif header is printed, go to
+               gnrc_netif_hdr_print.c and change the rssi and lqi printf's to
+
+               printf("rssi: %u ", hdr->rssi);
+               printf("lqi: %u"\n", hdr->lqi);
+
+               These are left unchanged in this branch because the ARM compiler
+               may be fixed overtime...
+             */
             gnrc_netif_hdr_print(hdr);
+
+            /* You can also get/print ipv6 data via ipv6_hdr_print() similar to 
+               gnrc_netif_hdr_print(). See gnrc_pktdump.c as an example.
+             */
 
             /* The current CC2538 RF driver uses rfcore_read_byte() to read the
                RSSI value which returns an uint_fast8_t when the RSSI register 
@@ -246,23 +256,36 @@ int wyliodrin_rx(int argc, char **argv)
                most compilers. Assuming this is safe to do, all you need is to
                subtract an offset of 73 from the value read to get the the RSSI
                in dBm */
+            /* online algorithm for variance and mean calculation (Welford):
+               https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
+             */
             delta = ((float) hdr->rssi - CC2538_RSSI_OFFSET) - rssi_mean;
             rssi_mean += delta / (float) pkt_cnt;
-            diff_squared_sum += delta * ((float) - rssi_mean);
+            diff_squared_sum += delta * (((float) hdr->rssi - CC2538_RSSI_OFFSET) - rssi_mean);
             printf("delta = %f, rssi_mean (dBm) = %f, diff_squared_sum = %f\n", delta, rssi_mean, diff_squared_sum);
 
-            /* you can also get/print ipv6 data the method above. see gnrc_pktdump.c
-            to better understand how. */ 
+            /* Tell GNRC you are done with this packet so it can release the memory */
+            gnrc_pktbuf_release(pkt);
+
+            /* Block while waiting for a packet with timeout based on experiment */
+            if (xtimer_msg_receive_timeout(&msg, (uint32_t) ((num_pkts - pkt_cnt + 1) * interval)) < 0) {
+                printf("wyliodrin_rx: timeout, experiment stopped\n");
+                printf("rssi: mean = %f dBm, variance = %f\n", rssi_mean, diff_squared_sum / (float) (pkt_cnt - 1));
+                printf("packet reception rate: %f \n", (float) pkt_cnt / (float) num_pkts);
+                _unregister_thread();
+                return 1;
+            }
         }
         else {
             puts("wyliodrin_rx: received something unexpected");
         }
     }
 
+    /* Stop this thread from receiving anymore packets */
     _unregister_thread();
 
+    /* Note: there is no error checking here */
     printf("wyliodrin_rx: experiment complete\n");
-    /* no error checking */
     printf("rssi: mean = %f, variance = %f\n", rssi_mean, diff_squared_sum / (float) (pkt_cnt - 1));
     printf("packet reception rate: %f\n", (float) pkt_cnt / (float) num_pkts);
 
