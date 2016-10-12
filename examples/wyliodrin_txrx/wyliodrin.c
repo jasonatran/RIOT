@@ -118,13 +118,13 @@ int wyliodrin_tx(int argc, char **argv)
         return 1;
     }
 
-    unsigned int pkt_num = 1;
+    uint8_t pkt_num = 1;
 
     for (unsigned int i = 0; i < num_pkts; i++) {
         gnrc_pktsnip_t *payload, *udp, *ip;
         unsigned payload_size;
         /* allocate payload */
-        payload = gnrc_pktbuf_add(NULL, &pkt_num, 1, GNRC_NETTYPE_UNDEF);
+        payload = gnrc_pktbuf_add(NULL, &pkt_num, sizeof(pkt_num), GNRC_NETTYPE_UNDEF);
         if (payload == NULL) {
             puts("Error: unable to copy data to packet buffer");
             return 1;
